@@ -4,10 +4,12 @@ Repositories module - Data access layer
 
 from src.repositories.document_repository import (
     IDocumentRepository,
-    InMemoryDocumentRepository
+    InMemoryDocumentRepository,
+    FileDocumentRepository
 )
 
 __all__ = [
     "IDocumentRepository",
-    "InMemoryDocumentRepository"
+    "InMemoryDocumentRepository",
+    "FileDocumentRepository"
 ]
