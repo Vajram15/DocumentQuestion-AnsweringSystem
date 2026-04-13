@@ -5,7 +5,7 @@ Follows Single Responsibility Principle
 """
 
 from typing import Dict, Any, Optional
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from src.core.abstractions import QuestionAnswerer, Retriever, DocumentProcessor
@@ -37,36 +37,51 @@ class LangChainQAService(QuestionAnswerer):
         """
         settings = get_settings()
         
-        if not settings.OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
-        
         self.retriever = retriever
         self.document_processor = document_processor
         self.repository = repository
+        self.chain = None
+        self.k = 3  # Default retrieval count
         
-        # Initialize LLM
-        self.llm = ChatOpenAI(
-            model_name=settings.OPENAI_MODEL,
-            temperature=0.3,
-            openai_api_key=settings.OPENAI_API_KEY
-        )
-        
-        # Create prompt template
-        self.prompt_template = PromptTemplate(
-            input_variables=["context", "question"],
-            template="""You are a helpful assistant. Answer the question based on the provided context.
+        # Try to initialize ChatGroq LLM
+        try:
+            groq_api_key = getattr(settings, 'GROQ_API_KEY', None)
+            logger.debug(f"[GROQ] API key loaded: {'***' + groq_api_key[-10:] if groq_api_key else 'NONE'}")
             
+            if not groq_api_key or groq_api_key.strip() == "":
+                logger.warning("Groq API key not configured. QA will use simple retrieval without LLM synthesis.")
+                self.llm = None
+            else:
+                logger.debug(f"[GROQ] Initializing ChatGroq with key: {groq_api_key[:20]}...")
+                self.llm = ChatGroq(
+                    model=settings.GROQ_MODEL,
+                    temperature=0.3,
+                    api_key=groq_api_key
+                )
+                logger.info(f"[GROQ] ChatGroq initialized successfully")
+                
+                # Create focused prompt template for concise answers
+                prompt_template = PromptTemplate(
+                    input_variables=["context", "question"],
+                    template="""You are a helpful assistant that answers questions based on the provided context. 
+
+IMPORTANT: Provide a concise, specific answer to the question using only the information from the context. Do not copy the entire context or repeat unnecessary information. Answer directly and briefly.
+
 Context:
 {context}
 
 Question: {question}
 
-Answer: Provide a clear, concise answer based on the context. If the context doesn't contain relevant information, say so."""
-        )
-        
-        # Create chain
-        self.chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
-        logger.info("QA Service initialized")
+Answer:"""
+                )
+                
+                # Create chain
+                self.chain = LLMChain(llm=self.llm, prompt=prompt_template)
+                logger.info("QA Service initialized with Groq LLM")
+        except Exception as e:
+            logger.error(f"Failed to initialize Groq LLM: {str(e)}", exc_info=True)
+            self.llm = None
+            self.chain = None
     
     async def answer(
         self,
@@ -75,12 +90,12 @@ Answer: Provide a clear, concise answer based on the context. If the context doe
         k: int = 3
     ) -> Dict[str, Any]:
         """
-        Answer a question based on documents
+        Answer a question based on documents using semantic search and LLM
         
         Args:
             question: User question
-            document_id: Optional specific document
-            k: Number of chunks to retrieve
+            document_id: Optional specific document to search in
+            k: Number of top chunks to retrieve (default: 3)
             
         Returns:
             Dictionary with answer, sources, and confidence
@@ -89,8 +104,8 @@ Answer: Provide a clear, concise answer based on the context. If the context doe
             if not question or not question.strip():
                 raise ValueError("Question cannot be empty")
             
-            # Retrieve relevant chunks
-            logger.info(f"Retrieving chunks for question: {question}")
+            # Retrieve top k=3 relevant chunks with similarity search
+            logger.info(f"Retrieving top {k} chunks for question: {question}")
             retrieved_chunks = await self.retriever.retrieve(question, k=k, document_id=document_id)
             
             if not retrieved_chunks:
@@ -105,16 +120,22 @@ Answer: Provide a clear, concise answer based on the context. If the context doe
             # Prepare context
             context = "\n".join([f"[{chunk['document_id']}] {chunk['content']}" for chunk in retrieved_chunks])
             
-            # Generate answer
-            logger.info("Generating answer")
-            response = await self.chain.arun(context=context, question=question)
+            # Generate answer - use LLM if available
+            if self.chain:
+                logger.info("Generating answer with Groq LLM")
+                response = await self.chain.arun(context=context, question=question)
+                answer = response.strip()
+            else:
+                logger.info("Using retrieval-based answer (no LLM available)")
+                answer = f"Based on the documents, here is relevant information:\n\n{context}"
             
             # Calculate confidence as average score of retrieved chunks
-            confidence = sum(chunk["score"] for chunk in retrieved_chunks) / len(retrieved_chunks)
+            # Note: FAISS returns distance (lower is better), so invert
+            confidence = 1.0 / (1.0 + (sum(chunk["score"] for chunk in retrieved_chunks) / len(retrieved_chunks)))
             
             return {
                 "question": question,
-                "answer": response.strip(),
+                "answer": answer,
                 "sources": [f"{chunk['document_id']}: {chunk['content'][:100]}..." for chunk in retrieved_chunks],
                 "confidence": float(confidence)
             }

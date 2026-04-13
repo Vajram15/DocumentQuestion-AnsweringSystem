@@ -4,7 +4,7 @@ Single Responsibility: Generate embeddings for text
 """
 
 from typing import List
-from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from src.core.abstractions import EmbeddingsService
 from src.config import get_settings
 from src.utils.logger import logger
@@ -12,8 +12,9 @@ from src.utils.logger import logger
 
 class OpenAIEmbeddingsService(EmbeddingsService):
     """
-    Concrete implementation using OpenAI embeddings
+    Concrete implementation using HuggingFace embeddings from LangChain Community
     Single Responsibility: Only generate embeddings
+    Uses local model - no API key required
     """
     
     def __init__(self, model: str = None):
@@ -21,19 +22,18 @@ class OpenAIEmbeddingsService(EmbeddingsService):
         Initialize embeddings service
         
         Args:
-            model: OpenAI model name
+            model: HuggingFace model name (default: all-MiniLM-L6-v2)
         """
         settings = get_settings()
-        self.model = model or settings.EMBEDDINGS_MODEL
+        # Use HuggingFace model instead of OpenAI
+        self.model = model or "all-MiniLM-L6-v2"
         
-        if not settings.OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
-        
-        self.embeddings = OpenAIEmbeddings(
-            model=self.model,
-            openai_api_key=settings.OPENAI_API_KEY
-        )
-        logger.info(f"Embeddings service initialized: model={self.model}")
+        try:
+            self.embeddings = HuggingFaceEmbeddings(model_name=self.model)
+            logger.info(f"Embeddings service initialized with HuggingFace: model={self.model}")
+        except Exception as e:
+            logger.error(f"Failed to initialize HuggingFace embeddings: {str(e)}")
+            raise
     
     async def embed_text(self, text: str) -> List[float]:
         """

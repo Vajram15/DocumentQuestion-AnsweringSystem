@@ -52,17 +52,25 @@ class DocumentService:
             if not name or not content:
                 raise ValueError("Document name and content are required")
             
-            logger.info(f"Uploading document: {name}")
+            logger.info(f"Uploading document: {name} (size: {len(content)} chars)")
+            logger.debug(f"[UPLOAD] Document service ID: {id(self)}, Retriever ID: {id(self.retriever)}")
             
             # Save document to repository
             document = await self.repository.save(name, content)
             document_id = document["id"]
+            logger.debug(f"[UPLOAD] Saved document {document_id} to repository")
             
             # Process document into chunks
             chunks = await self.processor.process(content)
+            logger.debug(f"[UPLOAD] Processed document into {len(chunks)} chunks")
+            logger.debug(f"[UPLOAD] Chunk sizes: {[len(c) for c in chunks[:3]]}... (showing first 3)")
             
             # Add to retriever
+            logger.debug(f"[UPLOAD] Adding document {document_id} to retriever (before)")
             await self.retriever.add_document(document_id, chunks)
+            logger.debug(f"[UPLOAD] Document {document_id} added to retriever (after)")
+            logger.debug(f"[UPLOAD] Retriever vectorstore state: {self.retriever.vectorstore is not None}")
+            logger.debug(f"[UPLOAD] Retriever document_metadata: {self.retriever.document_metadata}")
             
             logger.info(f"Document {document_id} uploaded successfully with {len(chunks)} chunks")
             
@@ -74,7 +82,7 @@ class DocumentService:
             }
             
         except Exception as e:
-            logger.error(f"Error uploading document: {str(e)}")
+            logger.error(f"Error uploading document: {str(e)}", exc_info=True)
             raise
     
     async def delete_document(self, document_id: str) -> Dict[str, Any]:

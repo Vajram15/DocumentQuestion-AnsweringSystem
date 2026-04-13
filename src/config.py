@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-3.5-turbo"
     
+    # Groq Configuration (LLaMA 3.1 8B Instant)
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    
     # Document Processing
     MAX_CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 100

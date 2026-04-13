@@ -12,7 +12,7 @@ from src.core import (
     InMemoryRetriever
 )
 from src.services import LangChainQAService, DocumentService
-from src.repositories import InMemoryDocumentRepository
+from src.repositories import FileDocumentRepository
 from src.utils.logger import logger
 
 
@@ -42,10 +42,10 @@ class DIContainer:
         # Core services
         self.document_processor = LangChainDocumentProcessor()
         self.embeddings_service = OpenAIEmbeddingsService()
-        self.retriever = InMemoryRetriever(self.embeddings_service)
+        self.retriever = InMemoryRetriever(self.embeddings_service, self.settings.VECTOR_STORE_DIR)
         
-        # Repository
-        self.repository = InMemoryDocumentRepository()
+        # Repository — persists raw files to DOCUMENTS_DIR on disk
+        self.repository = FileDocumentRepository(self.settings.DOCUMENTS_DIR)
         
         # Business logic services
         self.qa_service = LangChainQAService(
